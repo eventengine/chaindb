@@ -1,12 +1,13 @@
 
 var Q = require('q');
-var istream = require('./istream');
 var bitcoin = require('bitcoinjs-lib');
 var mi = require('midentity');
+var utils = require('tradle-utils');
 var Identity = mi.Identity;
 var AddressBook = mi.AddressBook;
 var TxWalker = require('tx-walker');
 var DataLoader = require('bitjoe-js/lib/dataLoader');
+var Verifier = require('./verifier');
 var Parser = require('chained-obj').Parser;
 var Keeper = require('bitkeeper-js');
 var keeperConf = require('./conf/keeper');
@@ -18,9 +19,9 @@ var once = require('once');
 var dezalgo = require('dezalgo');
 var extend = require('extend');
 var inherits = require('util').inherits;
+var defaultHandlers = require('./defaultHandlers');
 var EventEmitter = require('events').EventEmitter;
 // var PromiseStream = require('./promisestream');
-// var INDICES = ['pubkeys'];
 var BLOCK_KEY = 'lastblock';
 var PREFIX = 'tradle';
 var SYNC_INTERVAL = 20000;
@@ -37,7 +38,7 @@ function Butler(options) {
   }, options);
 
   this._options = extend(true, {
-    block: STARTING_BLOCK[networkName] || 0
+    fromBlock: STARTING_BLOCK[networkName] || 0
   }, options);
 
   bindAll(this);
@@ -58,12 +59,21 @@ function Butler(options) {
   })
 
   this._db = makeDB(options.path);
-  this._byHash = this._db.sublevel('byhash');
+  this._byDHTKey = this._db.sublevel('byDHTKey');
+  // this._byDHTKey.ensureIndex('_type');
   this._byPubKey = this._db.sublevel('bypubkey');
+  this._byFingerprint = this._db.sublevel('byfingerprint');
+  this._byTxId = this._db.sublevel('txs');
+  // this._byType = {};
 
-  // INDICES.forEach(function(i) {
-  //   this._db.ensureIndex(i);
-  // }, this);
+  var storeInfo = {
+    store: this
+  };
+
+  this._verifier = new Verifier(storeInfo);
+  for (var type in defaultHandlers) {
+    defaultHandlers[type].forEach(this.addHandler.bind(this, type));
+  }
 
   this._load();
   this.on('error', this.destroy);
@@ -71,6 +81,18 @@ function Butler(options) {
 
 inherits(Butler, EventEmitter);
 module.exports = Butler;
+
+Butler.prototype.addHandler = function(type, Handler) {
+  // TODO: type should be based on version hash, not just name
+  if (typeof type === 'function') {
+    Handler = type;
+    type = '';
+  }
+
+  this._verifier.add(type, new Handler({
+    store: this
+  }));
+}
 
 Butler.prototype._load = function(cb) {
   var self = this;
@@ -80,7 +102,7 @@ Butler.prototype._load = function(cb) {
     var block;
     if (err) {
       if (err.name === 'NotFoundError') {
-        block = self._options.block;
+        block = self._options.fromBlock;
       }
       else self.emit('error', err);
     }
@@ -147,6 +169,7 @@ Butler.prototype.sync = function(cb) {
   var loadPromise = Q.resolve();
   var parsePromise = Q.resolve();
 
+  // Todo: RxJS stream manipulation seems made for this
   var walker = this._walker = new TxWalker(this._walkerOpts)
     .from(this._block + 1)
     .on('OP_RETURN', function(tx, data) {
@@ -189,82 +212,89 @@ Butler.prototype.sync = function(cb) {
     .start();
 
   function processOne(chainedObj) {
+    chainedObj.block = self._block;
     parsePromise = parsePromise.then(function() {
       return self._processChainedObj(chainedObj);
     })
   }
 }
 
+/**
+ * process one chained obj
+ * @param  {Object} chainedObj see chainedobj.md for an example
+ * @return {[type]}            [description]
+ */
 Butler.prototype._processChainedObj = function(chainedObj) {
   var self = this;
   var identity;
+  var json;
+  var valid
 
   return Q.ninvoke(Parser, 'parse', chainedObj.file)
     .then(function(parsed) {
-      var json = JSON.parse(parsed.data.value);
-      if (json._type !== Identity.TYPE) return;
-
-      try {
-        identity = Identity.fromJSON(json);
-      } catch (err) {
-        console.warn('Failed to parse identity object', json);
-        return;
+      json = parsed.data.value;
+      chainedObj.parsed = parsed;
+      if (json._type !== Identity.TYPE) {
+        var getFrom = chainedObj.tx.addresses.from.map(self.byFingerprint, self);
+        return Q.race(getFrom);
       }
-
-      return self._validate(identity);
     })
-    .then(function(valid) {
+    .then(function(from) {
+      // only identities are allowed to be created without an identity
+      if (!from && json._type !== Identity.TYPE) return false
+
+      chainedObj.from = from;
+      return self._verifier.verify(chainedObj);
+    })
+    .then(function(_valid) {
+      valid = _valid
       if (valid) {
-        chainedObj.identity = identity;
-        return self._saveIdentity(chainedObj);
+        return self._save(chainedObj);
       }
     })
+    .catch(function(err) {
+      if (err && /Save Error/.test(err.message)) throw err
+
+      // ignore chainedObj
+      return valid
+    })
 }
 
-Butler.prototype._validate = function(identity) {
-  return Q.resolve(true);
-}
-
-Butler.prototype._saveIdentity = function(info) {
+/**
+ * save object to local db
+ * @param  {Object} chainedObj metadata and data for object stored on chain (see chainedobj.md)
+ * @param  {Identity} identity of obj creator
+ * @return {Promise}
+ */
+Butler.prototype._save = function(chainedObj, identity) {
   var self = this;
-  var identity = info.identity;
 
-  info = extend({}, info);
-  delete info.identity;
+  chainedObj = extend({}, chainedObj);
+  chainedObj.tx.body = chainedObj.tx.body.toBuffer();
 
-  info.tx = info.tx.body.toBuffer();
-  var hash = getHash(identity.toString());
-  var latest = {
-    identity: identity.toJSON(),
-    tx: info.tx
-  }
+  var dhtKey = chainedObj.key;
+  var pubKeyBatch = [];
+  var fingerprintBatch = [];
+  identity.keys().forEach(function(key) {
+    pubKeyBatch.push({ type: 'put', key: key.pubKeyString(), value: dhtKey })
+    fingerprintBatch.push({ type: 'put', key: key.fingerprint(), value: dhtKey })
+  });
 
-  return this._byHash.get(hash)
+  var type = chainedObj.parsed.data.value._type;
+  chainedObj._type = type;
+  // var typeDB = this._byType[type] = this._byType[type] || this._db.sublevel(type);
+
+  return Q.all([
+      self._byDHTKey.put(dhtKey, chainedObj),
+      self._byPubKey.batch(pubKeyBatch),
+      self._byFingerprint.batch(fingerprintBatch),
+      self._byTxId.put(chainedObj.tx.id, dhtKey)
+    ])
     .catch(function(err) {
-      if (err.name !== 'NotFoundError') throw err;
-
-      info.history = [];
-      return info;
-    })
-    .then(function(info) {
-      info.history.push(latest);
+      throw new Error('Save Error: ' + err.message);
     })
     .then(function() {
-      var batch = identity.keys().map(function(key) {
-        return { type: 'put', key: key.pubKeyString(), value: hash }
-      });
-
-      return Q.all([
-        self._byHash.put(hash, info),
-        self._byPubKey.batch(batch)
-      ])
-    })
-    .catch(function(err) {
-      debugger;
-      throw err;
-    })
-    .then(function() {
-      self.emit('identity', info);
+      self.emit('saved', chainedObj);
     });
 }
 
@@ -273,24 +303,83 @@ Butler.prototype._saveIdentity = function(info) {
  * @param  {String|Buffer|midentity Key}   pubKey
  * @return {Q.Promise} { identity: midentity.Identity, tx: bitcoin.Transaction }
  */
-Butler.prototype.lookup = function(pubKey) {
+Butler.prototype.byPubKey = function(pubKey) {
   var self = this;
 
   pubKey = pubKeyString(pubKey);
   return this._byPubKey.get(pubKey)
     .then(function(hash) {
-      return self._byHash.get(hash)
+      return self._byDHTKey.get(hash)
     })
     .then(function(info) {
       var latest = info.history.pop();
       latest.identity = Identity.fromJSON(latest.identity);
-      latest.tx = bitcoin.Transaction.fromBuffer(new Buffer(latest.tx.data));
       return latest;
     })
 }
 
+Butler.prototype.byDHTKey = function(key) {
+  return this._byDHTKey.get(key)
+}
+
+Butler.prototype.byFingerprint = function(key) {
+  return this._byFingerprint.get(key)
+}
+
+Butler.prototype.block = function(height) {
+  var data = [];
+  return this._byDHTKey.createReadStream()
+    .progress(function(info) {
+      if (info.block === height) {
+        data.push(info)
+      }
+    })
+    .then(function() {
+      return data;
+    })
+}
+
+Butler.prototype.blocks = function() {
+  var blocks = Object.create(null);
+  return this._byDHTKey.createReadStream()
+    .progress(function(info) {
+      var block = blocks[info.block] = blocks[info.block] || [];
+      block.push.apply(block, hexTxs(info))
+    })
+    .then(function() {
+      return toSortedArr(blocks)
+    })
+}
+
+Butler.prototype.transactions = function(height) {
+  var txs = {};
+  var load;
+  if (typeof block !== 'undefined') {
+    load = this.block(height)
+      .then(function(data) {
+        data.forEach(addTxs)
+      })
+  }
+  else {
+    load = this._byDHTKey.createReadStream()
+      .progress(addTxs)
+  }
+
+  return load.then(function() {
+    return txs;
+  })
+
+  function addTxs(info) {
+    info.history.forEach(function(data) {
+      var tx = toTx(data.tx)
+      txs[tx.getId()] = tx.toHex();
+    })
+  }
+}
+
+
 Butler.prototype.createReadStream = function() {
-  return this._byHash.createValueStream();
+  return this._byDHTKey.createValueStream();
 }
 
 Butler.prototype.destroy = function() {
@@ -322,9 +411,36 @@ Butler.prototype.destroy = function() {
   return Q.allSettled(tasks);
 }
 
-function getHash(str) {
-  return crypto.createHash('sha256').update(str).digest('hex');
+function hexTxs(info) {
+  return info.history.map(function(record) {
+    return parseBuf(getTxBody(record.tx)).toString('hex')
+  })
 }
+
+function getTxBody(txInfo) {
+  return txInfo.tx;
+}
+
+function toTx(txFromDb) {
+  var txBuf = parseBuf(getTxBody(txFromDb));
+  return bitcoin.Transaction.fromBuffer(txBuf);
+}
+
+function parseBuf(bufFromDb) {
+  return new Buffer(bufFromDb.data);
+}
+
+function toSortedArr(obj) {
+  return Object.keys(obj)
+    .sort(function(a, b) { return a - b })
+    .map(function(key) {
+      return obj[key]
+    })
+}
+
+// function getHash(str) {
+//   return crypto.createHash('sha256').update(str).digest('hex');
+// }
 
 function pubKeyString(pubKey) {
   if (typeof pubKey === 'string') return pubKey;
