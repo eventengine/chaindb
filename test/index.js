@@ -2,6 +2,7 @@
 var Q = require('q');
 var test = require('tape');
 var once = require('once');
+var leveldown = require('leveldown')
 var Blockchain = require('blockloader').Blockchain;
 var Identity = require('midentity').Identity
 var dickChainey = require('chained-obj')
@@ -19,7 +20,8 @@ test('save identity, lookup', function(t) {
     api: new Blockchain({ networkName: 'testnet', dir: './test/blocks' }),
     fromBlock: 330403,
     path: './test.db',
-    networkName: 'testnet'
+    networkName: 'testnet',
+    leveldown: leveldown
   });
 
   var alInfo = {
@@ -77,7 +79,8 @@ test('process chained object', function(t) {
     api: new Blockchain({ networkName: 'testnet', dir: './test/blocks' }),
     fromBlock: 330403,
     path: './test.db',
-    networkName: 'testnet'
+    networkName: 'testnet',
+    leveldown: leveldown
   });
 
   var b = new Builder()

@@ -34,7 +34,8 @@ var noop = function() {};
 function Butler(options) {
   typeforce({
     path: 'String',
-    networkName: 'String'
+    networkName: 'String',
+    leveldown: 'Function'
   }, options);
 
   this._options = extend(true, {
@@ -58,7 +59,7 @@ function Butler(options) {
     keeper: this._keeper
   })
 
-  this._db = makeDB(options.path);
+  this._db = makeDB(options.path, { db: options.leveldown });
   this._byDHTKey = this._db.sublevel('byDHTKey');
   // this._byDHTKey.ensureIndex('_type');
   this._byPubKey = this._db.sublevel('bypubkey');
