@@ -1,4 +1,3 @@
-
 var Identity = require('midentity').Identity
 var constants = require('./constants')
 

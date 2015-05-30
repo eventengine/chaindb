@@ -1,16 +1,15 @@
-
-var Q = require('q')
+// var Q = require('q')
 var Handler = require('./base')
 var inherits = require('util').inherits
-var toKey = require('midentity').toKey
+// var toKey = require('midentity').toKey
 
-function Prev() {
-  Handler.call(this);
+function Prev () {
+  Handler.call(this)
 }
 
 inherits(Prev, Handler)
 
-Prev.prototype.verify = function(obj) {
+Prev.prototype.verify = function (obj) {
   var data = obj.parsed.data.value
 
   if (!('_prev' in data)) return true
@@ -18,7 +17,7 @@ Prev.prototype.verify = function(obj) {
   var store = this.store
 
   return store.byDHTKey(data._prev)
-    .then(function(prev) {
+    .then(function (prev) {
       if (!prev) return false
 
       if ((obj.from && !prev.from) || (!obj.from && prev.from)) return false
@@ -34,15 +33,15 @@ Prev.prototype.verify = function(obj) {
 
     //   if (pubKey === obj._pubkey) return true
 
-    //   return Q.all([
-    //     store.byPubKey(obj._pubkey),
-    //     store.byPubKey(prev._pubkey)
-    //   ])
-    // })
-    // .spread(function(ident, prevIdent) {
-    //   // may not be as simple as this
-    //   return ident === prevIdent
-    // })
+//   return Q.all([
+//     store.byPubKey(obj._pubkey),
+//     store.byPubKey(prev._pubkey)
+//   ])
+// })
+// .spread(function(ident, prevIdent) {
+//   // may not be as simple as this
+//   return ident === prevIdent
+// })
 }
 
 module.exports = Prev

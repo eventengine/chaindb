@@ -1,8 +1,7 @@
-
 var extend = require('extend')
 
-function Handler(options) {
-  extend(this, options);
+function Handler (options) {
+  extend(this, options)
 }
 
 /**
@@ -10,7 +9,7 @@ function Handler(options) {
  * @param  {Object} chainedObj (see chainedobj.md)
  * @return {Boolean|Promise}
  */
-Handler.prototype.verify = function(chainedObj) {
+Handler.prototype.verify = function (chainedObj) {
   throw new Error('override this')
 }
 

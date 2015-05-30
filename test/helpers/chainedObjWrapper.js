@@ -1,13 +1,10 @@
-
-var Q = require('q')
 var utils = require('tradle-utils')
 var bitcoin = require('bitcoinjs-lib')
-var Parser = require('chained-obj').Parser
 
 // see chainedobj.md
-module.exports = function wrap(buf, cb) {
+module.exports = function wrap (buf, cb) {
   var wrapper = {}
-  utils.getInfoHash(buf, function(err, infoHash) {
+  utils.getInfoHash(buf, function (err, infoHash) {
     if (err) return cb(err)
 
     wrapper.key = infoHash
