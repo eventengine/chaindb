@@ -10,6 +10,7 @@ var Builder = dickChainey.Builder
 var Butler = require('../')
 // var makeDB = require('../makedb')
 var wrap = require('./helpers/chainedObjWrapper')
+var fakeKeeper = require('tradle-test-helpers').FakeKeeper
 // var PrevHandler = require('./verifier/handlers/prev')
 // var IdentityHandler = require('./verifier/handlers/identity')
 // var defaultHandlers = require('../defaultHandlers')
@@ -20,7 +21,10 @@ test('save identity, lookup', function (t) {
     fromBlock: 330403,
     path: './test.db',
     networkName: 'testnet',
-    leveldown: leveldown
+    leveldown: leveldown,
+    keeper: fakeKeeper.forMap({
+      // TODO: add keys
+    })
   })
 
   // var alInfo = {
@@ -75,7 +79,8 @@ test('process chained object', function (t) {
     fromBlock: 330403,
     path: './test.db',
     networkName: 'testnet',
-    leveldown: leveldown
+    leveldown: leveldown,
+    keeper: fakeKeeper.empty()
   })
 
   var b = new Builder()

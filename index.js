@@ -6,8 +6,6 @@ var TxWalker = require('tx-walker')
 var DataLoader = require('chainloader')
 var Verifier = require('./verifier')
 var Parser = require('chained-obj').Parser
-var Keeper = require('bitkeeper-js')
-var keeperConf = require('./conf/keeper')
 var makeDB = require('./makedb')
 var typeforce = require('typeforce')
 var debug = require('debug')('butler')
@@ -31,7 +29,8 @@ function Butler (options) {
   typeforce({
     path: 'String',
     networkName: 'String',
-    leveldown: 'Function'
+    leveldown: 'Function',
+    keeper: 'Object'
   }, options)
 
   this._options = extend(true, {
@@ -48,7 +47,7 @@ function Butler (options) {
     api: options.api
   }
 
-  this._keeper = new Keeper(keeperConf)
+  this._keeper = options.keeper
   this._dataLoader = new DataLoader({
     prefix: PREFIX,
     networkName: networkName,
