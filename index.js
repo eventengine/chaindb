@@ -41,7 +41,7 @@ function Butler (options) {
 
   var networkName = options.networkName
   this._walkerOpts = {
-    batchSize: 5,
+    batchSize: options.batchSize || 5,
     throttle: 2000,
     networkName: networkName,
     api: options.api
@@ -54,12 +54,14 @@ function Butler (options) {
     keeper: this._keeper
   })
 
-  this._db = makeDB(options.path, { db: options.leveldown })
-  this._byDHTKey = this._db.sublevel('byDHTKey')
+  var db = makeDB(options.path, { db: options.leveldown })
+  var sub = db.sub
+  this._db = db.db
+  this._byDHTKey = sub.sublevel('byDHTKey')
   // this._byDHTKey.ensureIndex('_type')
-  this._byPubKey = this._db.sublevel('bypubkey')
-  this._byFingerprint = this._db.sublevel('byfingerprint')
-  this._byTxId = this._db.sublevel('txs')
+  this._byPubKey = sub.sublevel('bypubkey')
+  this._byFingerprint = sub.sublevel('byfingerprint')
+  this._byTxId = sub.sublevel('txs')
   // this._byType = {}
 
   var storeInfo = {
@@ -98,7 +100,7 @@ Butler.prototype._load = function (cb) {
     var block
     if (err) {
       if (err.name === 'NotFoundError') {
-        block = self._options.fromBlock
+        block = self._options.fromBlock - 1
       }
       else self.emit('error', err)
     }
@@ -173,13 +175,19 @@ Butler.prototype.sync = function (cb) {
     //   blockNum = height
     // })
     .on('blockend', function (block, height) {
-      if (!loading.length) return
+      if (!loading.length) {
+        loadPromise = loadPromise.then(function () {
+          self._setBlock(height)
+        })
+
+        return loadPromise
+      }
 
       var batch = loading.slice()
       loading.length = 0
       loadPromise = loadPromise.then(function () {
-        return self._dataLoader.load(batch)
-      })
+          return self._dataLoader.load(batch)
+        })
         .then(function () {
           return parsePromise
         })
@@ -259,30 +267,38 @@ Butler.prototype._processChainedObj = function (chainedObj) {
  * @param  {Identity} identity of obj creator
  * @return {Promise}
  */
-Butler.prototype._save = function (chainedObj, identity) {
+Butler.prototype._save = function (chainedObj) {
   var self = this
 
   chainedObj = extend({}, chainedObj)
   chainedObj.tx.body = chainedObj.tx.body.toBuffer()
 
+  var from = chainedObj.from
   var dhtKey = chainedObj.key
-  var pubKeyBatch = []
-  var fingerprintBatch = []
-  identity.keys().forEach(function (key) {
-    pubKeyBatch.push({ type: 'put', key: key.pubKeyString(), value: dhtKey })
-    fingerprintBatch.push({ type: 'put', key: key.fingerprint(), value: dhtKey })
-  })
+  var tasks = [
+    self._byDHTKey.put(dhtKey, chainedObj),
+    self._byTxId.put(chainedObj.tx.id, dhtKey)
+  ]
 
   var type = chainedObj.parsed.data.value._type
+  if (type === Identity.TYPE) {
+    var pubKeyBatch = []
+    var fingerprintBatch = []
+    from.keys().forEach(function (key) {
+      pubKeyBatch.push({ type: 'put', key: key.pubKeyString(), value: dhtKey })
+      fingerprintBatch.push({ type: 'put', key: key.fingerprint(), value: dhtKey })
+    })
+
+    tasks.push(
+      self._byPubKey.batch(pubKeyBatch),
+      self._byFingerprint.batch(fingerprintBatch)
+    )
+  }
+
   chainedObj._type = type
   // var typeDB = this._byType[type] = this._byType[type] || this._db.sublevel(type)
 
-  return Q.all([
-    self._byDHTKey.put(dhtKey, chainedObj),
-    self._byPubKey.batch(pubKeyBatch),
-    self._byFingerprint.batch(fingerprintBatch),
-    self._byTxId.put(chainedObj.tx.id, dhtKey)
-  ])
+  return Q.all(tasks)
     .catch(function (err) {
       throw new Error('Save Error: ' + err.message)
     })
@@ -304,11 +320,11 @@ Butler.prototype.byPubKey = function (pubKey) {
     .then(function (hash) {
       return self._byDHTKey.get(hash)
     })
-    .then(function (info) {
-      var latest = info.history.pop()
-      latest.identity = Identity.fromJSON(latest.identity)
-      return latest
-    })
+    // .then(function (info) {
+    //   var latest = info.history.pop()
+    //   latest.identity = Identity.fromJSON(latest.identity)
+    //   return latest
+    // })
 }
 
 Butler.prototype.byDHTKey = function (key) {
@@ -344,11 +360,11 @@ Butler.prototype.blocks = function () {
     })
 }
 
-Butler.prototype.transactions = function (height) {
+Butler.prototype.transactions = function (blockHeight) {
   var txs = {}
   var load
-  if (typeof block !== 'undefined') {
-    load = this.block(height)
+  if (typeof blockHeight !== 'undefined') {
+    load = this.block(blockHeight)
       .then(function (data) {
         data.forEach(addTxs)
       })
@@ -362,10 +378,8 @@ Butler.prototype.transactions = function (height) {
   })
 
   function addTxs (info) {
-    info.history.forEach(function (data) {
-      var tx = toTx(data.tx)
-      txs[tx.getId()] = tx.toHex()
-    })
+    var tx = toTx(info.tx)
+    txs[tx.getId()] = tx.toHex()
   }
 }
 
@@ -403,13 +417,18 @@ Butler.prototype.destroy = function () {
 }
 
 function hexTxs (info) {
-  return info.history.map(function (record) {
-    return parseBuf(getTxBody(record.tx)).toString('hex')
-  })
+  return getTxBuf(info.tx).toString('hex')
+  // return info.history.map(function (record) {
+  //   return parseBuf(getTxBody(record.tx)).toString('hex')
+  // })
 }
 
 function getTxBody (txInfo) {
-  return txInfo.tx
+  return txInfo.body
+}
+
+function getTxBuf (txInfo) {
+  return parseBuf(getTxBody(txInfo))
 }
 
 function toTx (txFromDb) {

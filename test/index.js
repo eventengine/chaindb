@@ -1,6 +1,5 @@
 var Q = require('q')
 var test = require('tape')
-var once = require('once')
 var leveldown = require('leveldown')
 var Blockchain = require('blockloader').Blockchain
 // var Identity = require('midentity').Identity
@@ -9,23 +8,32 @@ var dickChainey = require('chained-obj')
 var Builder = dickChainey.Builder
 var Butler = require('../')
 // var makeDB = require('../makedb')
+var Identity = require('midentity').Identity
 var wrap = require('./helpers/chainedObjWrapper')
-var fakeKeeper = require('tradle-test-helpers').FakeKeeper
+var KeeperAPI = require('bitkeeper-client-js')
+// var fakeKeeper = require('tradle-test-helpers').FakeKeeper
+var FIRST_BLOCK = 446896
 // var PrevHandler = require('./verifier/handlers/prev')
 // var IdentityHandler = require('./verifier/handlers/identity')
 // var defaultHandlers = require('../defaultHandlers')
 
-test('save identity, lookup', function (t) {
-  var alfred = new Butler({
+function newAlfred () {
+  return new Butler({
     api: new Blockchain({ networkName: 'testnet', dir: './test/blocks' }),
-    fromBlock: 330403,
+    batchSize: 1,
+    fromBlock: FIRST_BLOCK,
     path: './test.db',
     networkName: 'testnet',
     leveldown: leveldown,
-    keeper: fakeKeeper.forMap({
-      // TODO: add keys
-    })
+    keeper: new KeeperAPI('http://localhost:25667')
+    // keeper: fakeKeeper.forMap({
+    //   // TODO: add keys
+    // })
   })
+}
+
+test('save identity, lookup', function (t) {
+  var alfred = newAlfred()
 
   // var alInfo = {
   //   store: alfred
@@ -38,7 +46,7 @@ test('save identity, lookup', function (t) {
   alfred.run()
   alfred.on('identity', function (info) {
     console.log('loaded identity from blockchain')
-    lookup()
+    lookup(true)
   })
 
   alfred.on('identity:new', function (info) {})
@@ -48,41 +56,45 @@ test('save identity, lookup', function (t) {
   alfred.createReadStream()
     .on('data', function () {
       console.log('loaded identity from local db')
-      lookup()
     })
 
-  var lookup = once(function lookup () {
+  lookup()
+
+  function lookup (catchErr) {
     Q.all([
       // pubkeys of the same identity
-      '0366e54d422f24d1f619632042c33829a83003aef882842c8b450c80d41ab154e1',
-      '02367e6f9a96f1d79da28c1c2683a2b27a2524ac0cfaa6df67c10feb40a3575f6c',
-      '038bf6fa3210e2395abaa6530a8f1d981c74fa4ed4d4223ded5fd502c02baa8938'
-    ].map(function (key) {
-      return alfred.byPubKey(key)
-        .then(function (info) {
-          console.log(info.identity.name())
-        })
-    }))
+      // dsa
+      'AAAAAACA+JvwLLKG6yXYO+4JaVFe6RGGXBg2GxODKVbFClkwVJtsZNvFsZLZCtEGLjrFSqW2Lq1Dz3E4jSqu+d0bwVvsW/l6NNm6Kf0EpWpQli4gFQeYNuw32qMwqVjWSm0GNYtIQatC1+SP0AtMCP3rZYct1z64wxRMKz5NgZimtWK1g20AAAAUlZ0ALefhE8BF7e9HbmtFx8BLzVEAAACAiHAMNBmy7yNmC0zuKWrmGAv21O5srTRTS8B+xzratDkOyWGvtYUBg/NQQODLnzAx1sA4Csr7yKriMmp4+Q0xA5WDsZaF/o8NIjcUa59oJjQsxtiSBi3oa+FofH/o1h3IvhAF8jNKmeTAhkmV28DFywAYcXMwNdaL2J6AK/Xzn8UAAACACluUumYaf9JigiyFPtW/6zmwI7cW3qBIm0O+lhxKYCGsa+/9Wu4x0Hu9psD1JlG7JTh2x31bPIiZivZ+oDDyTb2i7GnjzbQvUm4W0r+55BNUx6jF+MwGPtEFkIJS10yl5EqTSBPRDg9oAUY4tWvWoAR1QHUhcq8GDqjtXcjLPFE=',
+      // ec
+      '023b5e329146126b12b4af089d6b47bd517cedb0f806ac6d266be4c0a7327bcc2a',
+      // bitcoin
+      '020931aea7c71da1158285c7bb4c2f1ce7a3f7293f84002bb1394417740cd1ef55',
+      // testnet
+      '03a2c59522ca841543dc6b2fe64c43337f3494ac3a8a5cc1c901be94d7e28c1f6c'
+      ].map(function (key) {
+        return alfred.byPubKey(key)
+          .then(function (info) {
+            var from = Identity.fromJSON(info.from)
+            console.log(from.name())
+          })
+      }))
       .then(function () {
         return alfred.destroy()
+      })
+      .catch(function (err) {
+        if (!catchErr) throw err
       })
       .done(function () {
         t.end()
       })
-  })
+  }
+
 })
 
 test('process chained object', function (t) {
   t.plan(1)
-  var alfred = new Butler({
-    api: new Blockchain({ networkName: 'testnet', dir: './test/blocks' }),
-    fromBlock: 330403,
-    path: './test.db',
-    networkName: 'testnet',
-    leveldown: leveldown,
-    keeper: fakeKeeper.empty()
-  })
 
+  var alfred = newAlfred()
   var b = new Builder()
   b.data({
     _type: 'thang',
@@ -98,7 +110,7 @@ test('process chained object', function (t) {
       alfred._processChainedObj(wrapped)
         .then(function (processed) {
           t.notOk(processed)
-          alfred.destroy()
+          return alfred.destroy()
         })
         .done()
     })
