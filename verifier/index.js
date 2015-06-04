@@ -13,9 +13,10 @@ Verifier.prototype.verify = function (obj) {
   var self = this
 
   // not sure which order makes more sense
-  return this._verify(obj, obj.parsed.data.value._type)
+  var type = obj.parsed.data.value._type
+  return this._verify(obj, type)
     .then(function (verified) {
-      if (!verified || !obj._type || obj.type === constants.OMNI_TYPE) {
+      if (!verified || !type || type === constants.OMNI_TYPE) {
         return verified
       }
 

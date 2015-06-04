@@ -7,18 +7,14 @@ function IdentityHandler () {}
 inherits(IdentityHandler, Handler)
 
 IdentityHandler.prototype.verify = function (obj) {
-  var identity
   try {
-    identity = Identity.fromJSON(obj.parsed.data.value)
+    obj.from = Identity.fromJSON(obj.parsed.data.value)
+    return true
   } catch (err) {
     console.warn('Failed to parse identity object', obj)
     // throw err
     return false
   }
-
-  identity = identity
-  // var prev = obj.from
-// TODO: make sure they had the right to change this
 }
 
 module.exports = IdentityHandler
