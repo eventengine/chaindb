@@ -35,7 +35,7 @@
   "devDependencies": {
     "bitkeeper-client-js": "git://github.com/tradle/bitkeeper-client-js",
     "blockloader": "git://github.com/mvayngrib/blockloader.git",
-    "leveldown": "^1.0.6",
+    "memdown": "^1.0.0",
     "mkdirp": "^0.5.0",
     "standard": "^3.11.1",
     "tape": "^4.0.0",

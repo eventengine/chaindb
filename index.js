@@ -167,7 +167,7 @@ Butler.prototype.sync = function (cb) {
 
   // Todo: RxJS stream manipulation seems made for this
   var walker = this._walker = new TxWalker(this._walkerOpts)
-    .from(this._block + 1)
+  walker.from(this._block + 1)
     .on('OP_RETURN', function (tx, data) {
       loading.push(tx)
     })

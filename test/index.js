@@ -1,66 +1,45 @@
+var fs = require('fs')
+var path = require('path')
 var Q = require('q')
 var test = require('tape')
-var leveldown = require('leveldown')
-var Blockchain = require('blockloader').Blockchain
-// var Identity = require('midentity').Identity
+var memdown = require('memdown')
 var dickChainey = require('chained-obj')
-// var Parser = dickChainey.Parser
 var Builder = dickChainey.Builder
 var Butler = require('../')
-// var makeDB = require('../makedb')
 var Identity = require('midentity').Identity
 var wrap = require('./helpers/chainedObjWrapper')
-var KeeperAPI = require('bitkeeper-client-js')
-// var fakeKeeper = require('tradle-test-helpers').FakeKeeper
+var fakeKeeper = require('tradle-test-helpers').FakeKeeper
+var Fakechain = require('blockloader').Fakechain
+var ted = fs.readFileSync(path.join(__dirname, '/fixtures/ted'))
 var FIRST_BLOCK = 446896
-// var PrevHandler = require('./verifier/handlers/prev')
-// var IdentityHandler = require('./verifier/handlers/identity')
-// var defaultHandlers = require('../defaultHandlers')
+var blockHexPath = path.join(__dirname, '/fixtures/blocks/' + FIRST_BLOCK)
+var block = fs.readFileSync(blockHexPath)
 
 function newAlfred () {
+  var fakechain = new Fakechain({ networkName: 'testnet' })
+    .addBlock(block, FIRST_BLOCK)
+
   return new Butler({
-    api: new Blockchain({ networkName: 'testnet', dir: './test/blocks' }),
+    // api: new Blockchain({ networkName: 'testnet', dir: './test/blocks' }),
+    api: fakechain,
     batchSize: 1,
     fromBlock: FIRST_BLOCK,
     path: './test.db',
     networkName: 'testnet',
-    leveldown: leveldown,
-    keeper: new KeeperAPI('http://localhost:25667')
-    // keeper: fakeKeeper.forMap({
-    //   // TODO: add keys
-    // })
+    leveldown: memdown,
+    // keeper: new KeeperAPI('http://localhost:25667')
+    keeper: fakeKeeper.forMap({
+      '1fe1c416981ae8d0ade0615e52e81406f24aee6e': ted
+    })
   })
 }
 
-test('save identity, lookup', function (t) {
+test('detect/process identity on chain', function (t) {
   var alfred = newAlfred()
-
-  // var alInfo = {
-  //   store: alfred
-  // }
-
-  // for (var type in defaultHandlers) {
-  //   defaultHandlers[type].forEach(alfred.addHandler, alfred)
-  // }
-
   alfred.run()
-  alfred.on('identity', function (info) {
-    console.log('loaded identity from blockchain')
-    lookup(true)
-  })
+  alfred.on('saved', lookup)
 
-  alfred.on('identity:new', function (info) {})
-
-  alfred.on('identity:update', function (info) {})
-
-  alfred.createReadStream()
-    .on('data', function () {
-      console.log('loaded identity from local db')
-    })
-
-  lookup()
-
-  function lookup (catchErr) {
+  function lookup () {
     Q.all([
       // pubkeys of the same identity
       // dsa
@@ -80,9 +59,6 @@ test('save identity, lookup', function (t) {
       }))
       .then(function () {
         return alfred.destroy()
-      })
-      .catch(function (err) {
-        if (!catchErr) throw err
       })
       .done(function () {
         t.end()
