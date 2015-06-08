@@ -15,6 +15,7 @@
   "license": "MIT",
   "dependencies": {
     "bitcoinjs-lib": "^1.5.6",
+    "bitjoe-js": "git://github.com/tradle/bitjoe-js#simple",
     "chained-obj": "git://github.com/tradle/chained-obj",
     "chainloader": "git+https://github.com/mvayngrib/chainloader.git",
     "debug": "^2.1.3",

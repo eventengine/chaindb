@@ -32,7 +32,7 @@ SigCheck.prototype.verify = function (chainedObj) {
   return Q.ninvoke(rebuild, 'hash')
     .then(function (hash) {
       return keys.some(function (key) {
-        return key.verify(unsigned, sig)
+        return key.verify(hash, sig)
       })
     })
 }

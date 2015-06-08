@@ -44,7 +44,7 @@ function Butler (options) {
     batchSize: options.batchSize || 5,
     throttle: 2000,
     networkName: networkName,
-    api: options.api
+    api: options.chain
   }
 
   this._keeper = options.keeper
@@ -126,7 +126,8 @@ Butler.prototype.scheduleSync = function () {
   if (this._paused || this._destroyed) return
 
   clearTimeout(this._syncTimeout)
-  this._syncTimeout = setTimeout(this.sync.bind(this), SYNC_INTERVAL)
+  this._syncTimeout = setTimeout(this.sync.bind(this),
+    this._options.syncInterval || SYNC_INTERVAL)
 }
 
 Butler.prototype.pause = function () {
@@ -214,7 +215,8 @@ Butler.prototype.sync = function (cb) {
     .start()
 
   function processOne (chainedObj) {
-    chainedObj.block = self._block
+    // the block currently being processed is the "next" block
+    chainedObj.block = self._block + 1
     parsePromise = parsePromise.then(function () {
       return self._processChainedObj(chainedObj)
     })
@@ -244,7 +246,7 @@ Butler.prototype._processChainedObj = function (chainedObj) {
       // only identities are allowed to be created without an identity
       if (!from && json._type !== Identity.TYPE) return false
 
-      chainedObj.from = from
+      chainedObj.from = from && Identity.fromJSON(from)
       return self._verifier.verify(chainedObj)
     })
     .then(function (_valid) {
@@ -313,26 +315,27 @@ Butler.prototype._save = function (chainedObj) {
  * @return {Q.Promise} { identity: midentity.Identity, tx: bitcoin.Transaction }
  */
 Butler.prototype.byPubKey = function (pubKey) {
-  var self = this
-
   pubKey = pubKeyString(pubKey)
-  return this._byPubKey.get(pubKey)
+  return this._getVia(pubKey, this._byPubKey)
+}
+
+Butler.prototype._getVia = function (key, db) {
+  var self = this
+  return db.get(key)
     .then(function (hash) {
       return self._byDHTKey.get(hash)
     })
-    // .then(function (info) {
-    //   var latest = info.history.pop()
-    //   latest.identity = Identity.fromJSON(latest.identity)
-    //   return latest
-    // })
+    .then(function (chainedObj) {
+      return chainedObj.parsed.data.value
+    })
 }
 
 Butler.prototype.byDHTKey = function (key) {
   return this._byDHTKey.get(key)
 }
 
-Butler.prototype.byFingerprint = function (key) {
-  return this._byFingerprint.get(key)
+Butler.prototype.byFingerprint = function (fingerprint) {
+  return this._getVia(fingerprint, this._byFingerprint)
 }
 
 Butler.prototype.block = function (height) {
