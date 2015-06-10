@@ -7,7 +7,10 @@ var memdown = require('memdown')
 var dickChainey = require('chained-obj')
 var Builder = dickChainey.Builder
 var Butler = require('../')
-var Identity = require('midentity').Identity
+var mi = require('midentity')
+var Keys = mi.Keys
+var Identity = mi.Identity
+var DataLoader = require('chainloader')
 var wrap = require('./helpers/chainedObjWrapper')
 var fakeKeeper = require('tradle-test-helpers').FakeKeeper
 var fakeWallet = require('tradle-test-helpers').fakeWallet
@@ -18,9 +21,34 @@ var ted = fs.readFileSync(path.join(__dirname, '/fixtures/ted'))
 var tedPriv = require('./fixtures/ted-priv')
 // var FIRST_BLOCK = 446896
 var FIRST_BLOCK = 447188
-var blockHexPath = path.join(__dirname, '/fixtures/blocks/' + FIRST_BLOCK)
-var block = fs.readFileSync(blockHexPath)
+var tedBlockHexPath = path.join(__dirname, '/fixtures/blocks/' + FIRST_BLOCK)
+var tedBlock = fs.readFileSync(tedBlockHexPath)
 var dbCount = 0
+var PREFIX = 'tradle'
+
+// IDENTITIES
+var tedIdent = Identity.fromJSON(tedPriv)
+var billIdent = new Identity()
+  .name('Bill')
+  .addKey(new Keys.Bitcoin({
+    networkName: 'testnet',
+    purpose: 'payment',
+    priv: 'Kx6qnk7QFVNLJP8fgwgUtDW7RhgtpiQz8DdVAww1pQhnPk2FAQjb'
+  }))
+
+var tedWallet = fakeWallet({
+  priv: tedIdent.keys({ networkName: 'testnet' })[0].priv(),
+  unspents: [100000]
+})
+
+var billWallet = fakeWallet({
+  blockchain: tedWallet.blockchain,
+  priv: billIdent.keys({ networkName: 'testnet' })[0].priv(),
+  unspents: [100000]
+})
+
+// END IDENTITIES
+
 var DEFAULTS = {
   batchSize: 1,
   fromBlock: FIRST_BLOCK,
@@ -33,7 +61,6 @@ function newAlfred (options) {
   var opts = extend({}, DEFAULTS, options)
   if (!opts.chain) {
     opts.chain = new Fakechain({ networkName: 'testnet' })
-      // .addBlock(block, FIRST_BLOCK)
   }
 
   if (!opts.keeper) {
@@ -44,7 +71,34 @@ function newAlfred (options) {
     opts.path = './test' + (dbCount++) + '.db'
   }
 
-  return new Butler(opts)
+  var butler = new Butler(opts)
+  butler.chainloader = new DataLoader({
+    prefix: PREFIX,
+    networkName: opts.networkName,
+    keeper: opts.keeper,
+    lookup: function (fingerprint, cb) {
+      var key = butler.identity && butler.identity.keys({ fingerprint: fingerprint })[0]
+      if (key) {
+        return cb(null, {
+          key: key,
+          identity: butler.identity
+        })
+      }
+
+      butler.byFingerprint(fingerprint)
+        .then(function (identity) {
+          identity = Identity.fromJSON(identity)
+          cb(null, {
+            key: identity.keys({ fingerprint: fingerprint })[0],
+            identity: identity
+          })
+        })
+        .catch(cb)
+        .done()
+    }
+  })
+
+  return butler
 }
 
 // test('prime chain', function () {
@@ -52,37 +106,48 @@ function newAlfred (options) {
 // })
 
 test('"put" identity on chain, then "put" identity-signed object', function (t) {
-  var tedIdent = Identity.fromJSON(tedPriv)
-  var wallet = fakeWallet({
-    priv: tedIdent.keys({ networkName: 'testnet' })[0].priv(),
-    unspents: [100000]
-  })
-
+  // t.timeoutAfter(10000)
   var keeper = fakeKeeper.empty()
   var alfred = newAlfred({
     fromBlock: 0,
-    chain: wallet.blockchain,
+    chain: tedWallet.blockchain,
     keeper: keeper,
+    // identity: tedIdent,
     syncInterval: 1000
   })
 
+  alfred.identity = tedIdent
+
   fakePut({
       keeper: keeper,
-      wallet: wallet,
+      wallet: tedWallet,
       data: ted
     })
     .done()
 
+  fakePut({
+      keeper: keeper,
+      wallet: billWallet,
+      data: billIdent.exportSigned()
+    })
+    .done()
+
+  var savedCount = 0
   alfred.run()
   alfred.on('saved', function (obj) {
-    if (obj.block === 1) {
+    savedCount++
+    if (savedCount === 1) {
+      t.equal(obj.key, 'e46143b3468534dce7b7b2ac8398fcc573f7376c')
+      return
+    }
+
+    if (savedCount === 3) {
       return alfred.destroy()
         .done(function () {
           t.end()
         })
     }
 
-    t.equal(obj.key, 'e46143b3468534dce7b7b2ac8398fcc573f7376c')
     new Builder()
       .data({
         hey: 'there'
@@ -92,10 +157,13 @@ test('"put" identity on chain, then "put" identity-signed object', function (t) 
         if (err) throw err
 
         fakePut({
-            wallet: wallet,
-            chain: wallet.blockchain,
+            wallet: tedWallet,
+            chain: tedWallet.blockchain,
             keeper: keeper,
-            data: buf
+            data: buf,
+            recipients: billIdent.keys({ networkName: 'testnet' }).map(function (k) {
+              return k.pubKeyString()
+            })
           })
           .done()
       })
@@ -108,8 +176,9 @@ test('detect/process identity on chain', function (t) {
     keeper: fakeKeeper.forMap({
       'e46143b3468534dce7b7b2ac8398fcc573f7376c': ted
     }),
-    chain: new Fakechain({ networkName: 'testnet' }).addBlock(block, FIRST_BLOCK)
+    chain: new Fakechain({ networkName: 'testnet' }).addBlock(tedBlock, FIRST_BLOCK)
   })
+  alfred.identity = tedIdent
   alfred.run()
   alfred.on('saved', lookup)
 

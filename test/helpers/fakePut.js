@@ -11,7 +11,8 @@ module.exports = function fakePutOnChain (options) {
   // var chain = options.chain || new FakeChain({ networkName: 'testnet' })
   var keeper = options.keeper || fakeKeeper.empty()
   var recipients = options.recipients
-  var isPublic = 'public' in options ? options.public : true
+  var isPublic = 'public' in options ? options.public :
+    recipients ? !recipients.length : true
   var wallet = options.wallet || fakeWallet({
     priv: options.priv,
     unspents: [100000]

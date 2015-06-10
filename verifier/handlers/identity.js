@@ -8,7 +8,7 @@ inherits(IdentityHandler, Handler)
 
 IdentityHandler.prototype.verify = function (obj) {
   try {
-    obj.from = Identity.fromJSON(obj.parsed.data.value)
+    Identity.fromJSON(obj.parsed.data.value)
     return true
   } catch (err) {
     console.warn('Failed to parse identity object', obj)

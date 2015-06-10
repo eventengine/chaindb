@@ -1,6 +1,6 @@
 {
   "key": "..dht key..",
-  "from": Identity, // may be null
+  "from": Identity?, // may be null
   "to": Identity?,   // may be null
   "file": fileBuffer,
   "permission": Permission?, // permission associated with the stored obj

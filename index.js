@@ -3,7 +3,6 @@ var bitcoin = require('bitcoinjs-lib')
 var mi = require('midentity')
 var Identity = mi.Identity
 var TxWalker = require('tx-walker')
-var DataLoader = require('chainloader')
 var Verifier = require('./verifier')
 var Parser = require('chained-obj').Parser
 var makeDB = require('./makedb')
@@ -17,7 +16,6 @@ var defaultHandlers = require('./defaultHandlers')
 var EventEmitter = require('events').EventEmitter
 // var PromiseStream = require('./promisestream')
 var BLOCK_KEY = 'lastblock'
-var PREFIX = 'tradle'
 var SYNC_INTERVAL = 20000
 var STARTING_BLOCK = {
   testnet: 330399
@@ -29,8 +27,8 @@ function Butler (options) {
   typeforce({
     path: 'String',
     networkName: 'String',
-    leveldown: 'Function',
-    keeper: 'Object'
+    leveldown: 'Function'
+    // chainloader: can set after init
   }, options)
 
   this._options = extend(true, {
@@ -47,12 +45,8 @@ function Butler (options) {
     api: options.chain
   }
 
-  this._keeper = options.keeper
-  this._dataLoader = new DataLoader({
-    prefix: PREFIX,
-    networkName: networkName,
-    keeper: this._keeper
-  })
+  this.identity = options.identity
+  this.chainloader = options.chainloader
 
   var db = makeDB(options.path, { db: options.leveldown })
   var sub = db.sub
@@ -137,6 +131,8 @@ Butler.prototype.pause = function () {
 
 Butler.prototype.run = function () {
   this._paused = false
+  if (!this.chainloader) throw new Error('you must set a "chainloader"')
+
   if (this._ready) this.sync()
   else this.once('ready', this.sync)
 }
@@ -148,7 +144,7 @@ Butler.prototype.sync = function (cb) {
   cb = once(dezalgo(function (err) {
     self._syncing = false
     origCB(err)
-    self._dataLoader.removeListener('file:public', processOne)
+    self.chainloader.removeListener('file', processOne)
     self.scheduleSync()
   }))
 
@@ -158,7 +154,7 @@ Butler.prototype.sync = function (cb) {
   if (this._paused) return cb(new Error("I'm paused, unpause me first"))
 
   this._syncing = true
-  this._dataLoader.on('file:public', processOne)
+  this.chainloader.on('file', processOne)
 
   var err
   // var blockNum
@@ -187,7 +183,7 @@ Butler.prototype.sync = function (cb) {
       var batch = loading.slice()
       loading.length = 0
       loadPromise = loadPromise.then(function () {
-          return self._dataLoader.load(batch)
+          return self.chainloader.load(batch)
         })
         .then(function () {
           return parsePromise
@@ -231,22 +227,20 @@ Butler.prototype.sync = function (cb) {
 Butler.prototype._processChainedObj = function (chainedObj) {
   var self = this
   var json
+  var isIdentity
   var valid
 
   return Q.ninvoke(Parser, 'parse', chainedObj.file)
     .then(function (parsed) {
       json = parsed.data.value
+      isIdentity = json._type === Identity.TYPE
       chainedObj.parsed = parsed
-      if (json._type !== Identity.TYPE) {
-        var getFrom = chainedObj.tx.addresses.from.map(self.byFingerprint, self)
-        return Q.race(getFrom)
-      }
-    })
-    .then(function (from) {
+      var from = chainedObj.from
       // only identities are allowed to be created without an identity
-      if (!from && json._type !== Identity.TYPE) return false
+      if (!from && !isIdentity) return false
 
-      chainedObj.from = from && Identity.fromJSON(from)
+      chainedObj.from = from && from.identity
+      chainedObj.to = chainedObj.to && chainedObj.to.identity
       return self._verifier.verify(chainedObj)
     })
     .then(function (_valid) {
@@ -272,18 +266,22 @@ Butler.prototype._processChainedObj = function (chainedObj) {
 Butler.prototype._save = function (chainedObj) {
   var self = this
 
-  chainedObj = extend({}, chainedObj)
+  chainedObj = extend(true, {}, chainedObj)
+  chainedObj.permission = chainedObj.permission && chainedObj.permission.body()
   chainedObj.tx.body = chainedObj.tx.body.toBuffer()
+  chainedObj.from = chainedObj.from && chainedObj.from.toJSON()
+  chainedObj.to = chainedObj.to && chainedObj.to.toJSON()
 
-  var from = chainedObj.from
   var dhtKey = chainedObj.key
   var tasks = [
     self._byDHTKey.put(dhtKey, chainedObj),
     self._byTxId.put(chainedObj.tx.id, dhtKey)
   ]
 
-  var type = chainedObj.parsed.data.value._type
+  var data = chainedObj.parsed.data.value
+  var type = data._type
   if (type === Identity.TYPE) {
+    var from = Identity.fromJSON(data)
     var pubKeyBatch = []
     var fingerprintBatch = []
     from.keys().forEach(function (key) {
@@ -397,8 +395,7 @@ Butler.prototype.destroy = function () {
 
   this._destroyed = true
   var tasks = [
-    this._db.close(),
-    this._keeper.destroy()
+    this._db.close()
   ]
 
   var walker = this._walker
