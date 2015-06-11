@@ -72,31 +72,11 @@ function newAlfred (options) {
   }
 
   var butler = new Butler(opts)
-  butler.chainloader = new DataLoader({
-    prefix: PREFIX,
-    networkName: opts.networkName,
-    keeper: opts.keeper,
-    lookup: function (fingerprint, cb) {
-      var key = butler.identity && butler.identity.keys({ fingerprint: fingerprint })[0]
-      if (key) {
-        return cb(null, {
-          key: key,
-          identity: butler.identity
-        })
-      }
-
-      butler.byFingerprint(fingerprint)
-        .then(function (identity) {
-          identity = Identity.fromJSON(identity)
-          cb(null, {
-            key: identity.keys({ fingerprint: fingerprint })[0],
-            identity: identity
-          })
-        })
-        .catch(cb)
-        .done()
-    }
-  })
+    .setChainloader(new DataLoader({
+      prefix: PREFIX,
+      networkName: opts.networkName,
+      keeper: opts.keeper
+    }))
 
   return butler
 }

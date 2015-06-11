@@ -46,7 +46,7 @@ function Butler (options) {
   }
 
   this.identity = options.identity
-  this.chainloader = options.chainloader
+  if (options.chainloader) this.setChainloader(options.chainloader)
 
   var db = makeDB(options.path, { db: options.leveldown })
   var sub = db.sub
@@ -73,6 +73,33 @@ function Butler (options) {
 
 inherits(Butler, EventEmitter)
 module.exports = Butler
+
+Butler.prototype.setChainloader = function (chainloader) {
+  this.chainloader = chainloader
+  chainloader.lookupWith(this._lookup.bind(this))
+  return this
+}
+
+Butler.prototype._lookup = function (fingerprint, cb) {
+  var key = this.identity && this.identity.keys({ fingerprint: fingerprint })[0]
+  if (key) {
+    return cb(null, {
+      key: key,
+      identity: this.identity
+    })
+  }
+
+  this.byFingerprint(fingerprint)
+    .then(function (identity) {
+      identity = Identity.fromJSON(identity)
+      cb(null, {
+        key: identity.keys({ fingerprint: fingerprint })[0],
+        identity: identity
+      })
+    })
+    .catch(cb)
+    .done()
+}
 
 Butler.prototype.addHandler = function (type, Handler) {
   // TODO: type should be based on version hash, not just name
@@ -131,7 +158,7 @@ Butler.prototype.pause = function () {
 
 Butler.prototype.run = function () {
   this._paused = false
-  if (!this.chainloader) throw new Error('you must set a "chainloader"')
+  if (!this.chainloader) throw new Error('you must set a chainloader (use setChainloader)')
 
   if (this._ready) this.sync()
   else this.once('ready', this.sync)
