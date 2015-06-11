@@ -23,7 +23,7 @@ var STARTING_BLOCK = {
 
 var noop = function () {}
 
-function Butler (options) {
+function ChainDB (options) {
   typeforce({
     path: 'String',
     networkName: 'String',
@@ -71,16 +71,16 @@ function Butler (options) {
   this.on('error', this.destroy)
 }
 
-inherits(Butler, EventEmitter)
-module.exports = Butler
+inherits(ChainDB, EventEmitter)
+module.exports = ChainDB
 
-Butler.prototype.setChainloader = function (chainloader) {
+ChainDB.prototype.setChainloader = function (chainloader) {
   this.chainloader = chainloader
   chainloader.lookupWith(this._lookup.bind(this))
   return this
 }
 
-Butler.prototype._lookup = function (fingerprint, cb) {
+ChainDB.prototype._lookup = function (fingerprint, cb) {
   var key = this.identity && this.identity.keys({ fingerprint: fingerprint })[0]
   if (key) {
     return cb(null, {
@@ -101,7 +101,7 @@ Butler.prototype._lookup = function (fingerprint, cb) {
     .done()
 }
 
-Butler.prototype.addHandler = function (type, Handler) {
+ChainDB.prototype.addHandler = function (type, Handler) {
   // TODO: type should be based on version hash, not just name
   if (typeof type === 'function') {
     Handler = type
@@ -113,7 +113,7 @@ Butler.prototype.addHandler = function (type, Handler) {
   }))
 }
 
-Butler.prototype._load = function (cb) {
+ChainDB.prototype._load = function (cb) {
   var self = this
 
   cb = once(cb || noop)
@@ -134,7 +134,7 @@ Butler.prototype._load = function (cb) {
   })
 }
 
-Butler.prototype._setBlock = function (block) {
+ChainDB.prototype._setBlock = function (block) {
   if (block < this._block) {
     throw new Error("Can't go back a block")
   }
@@ -143,7 +143,7 @@ Butler.prototype._setBlock = function (block) {
   return this._db.put(BLOCK_KEY, block)
 }
 
-Butler.prototype.scheduleSync = function () {
+ChainDB.prototype.scheduleSync = function () {
   if (this._paused || this._destroyed) return
 
   clearTimeout(this._syncTimeout)
@@ -151,12 +151,12 @@ Butler.prototype.scheduleSync = function () {
     this._options.syncInterval || SYNC_INTERVAL)
 }
 
-Butler.prototype.pause = function () {
+ChainDB.prototype.pause = function () {
   this._paused = true
   clearTimeout(this._syncTimeout)
 }
 
-Butler.prototype.run = function () {
+ChainDB.prototype.run = function () {
   this._paused = false
   if (!this.chainloader) throw new Error('you must set a chainloader (use setChainloader)')
 
@@ -164,7 +164,7 @@ Butler.prototype.run = function () {
   else this.once('ready', this.sync)
 }
 
-Butler.prototype.sync = function (cb) {
+ChainDB.prototype.sync = function (cb) {
   var self = this
   var origCB = cb || noop
 
@@ -251,7 +251,7 @@ Butler.prototype.sync = function (cb) {
  * @param  {Object} chainedObj see chainedobj.md for an example
  * @return {[type]}            [description]
  */
-Butler.prototype._processChainedObj = function (chainedObj) {
+ChainDB.prototype._processChainedObj = function (chainedObj) {
   var self = this
   var json
   var isIdentity
@@ -290,7 +290,7 @@ Butler.prototype._processChainedObj = function (chainedObj) {
  * @param  {Identity} identity of obj creator
  * @return {Promise}
  */
-Butler.prototype._save = function (chainedObj) {
+ChainDB.prototype._save = function (chainedObj) {
   var self = this
 
   chainedObj = extend(true, {}, chainedObj)
@@ -339,12 +339,12 @@ Butler.prototype._save = function (chainedObj) {
  * @param  {String|Buffer|midentity Key}   pubKey
  * @return {Q.Promise} { identity: midentity.Identity, tx: bitcoin.Transaction }
  */
-Butler.prototype.byPubKey = function (pubKey) {
+ChainDB.prototype.byPubKey = function (pubKey) {
   pubKey = pubKeyString(pubKey)
   return this._getVia(pubKey, this._byPubKey)
 }
 
-Butler.prototype._getVia = function (key, db) {
+ChainDB.prototype._getVia = function (key, db) {
   var self = this
   return db.get(key)
     .then(function (hash) {
@@ -355,15 +355,15 @@ Butler.prototype._getVia = function (key, db) {
     })
 }
 
-Butler.prototype.byDHTKey = function (key) {
+ChainDB.prototype.byDHTKey = function (key) {
   return this._byDHTKey.get(key)
 }
 
-Butler.prototype.byFingerprint = function (fingerprint) {
+ChainDB.prototype.byFingerprint = function (fingerprint) {
   return this._getVia(fingerprint, this._byFingerprint)
 }
 
-Butler.prototype.block = function (height) {
+ChainDB.prototype.block = function (height) {
   var data = []
   return this._byDHTKey.createReadStream()
     .progress(function (info) {
@@ -376,7 +376,7 @@ Butler.prototype.block = function (height) {
     })
 }
 
-Butler.prototype.blocks = function () {
+ChainDB.prototype.blocks = function () {
   var blocks = Object.create(null)
   return this._byDHTKey.createReadStream()
     .progress(function (info) {
@@ -388,7 +388,7 @@ Butler.prototype.blocks = function () {
     })
 }
 
-Butler.prototype.transactions = function (blockHeight) {
+ChainDB.prototype.transactions = function (blockHeight) {
   var txs = {}
   var load
   if (typeof blockHeight !== 'undefined') {
@@ -411,11 +411,11 @@ Butler.prototype.transactions = function (blockHeight) {
   }
 }
 
-Butler.prototype.createReadStream = function () {
+ChainDB.prototype.createReadStream = function () {
   return this._byDHTKey.createValueStream()
 }
 
-Butler.prototype.destroy = function () {
+ChainDB.prototype.destroy = function () {
   if (this._destroyed) return Q.resolve()
 
   var self = this

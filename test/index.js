@@ -6,7 +6,7 @@ var extend = require('extend')
 var memdown = require('memdown')
 var dickChainey = require('chained-obj')
 var Builder = dickChainey.Builder
-var Butler = require('../')
+var ChainDB = require('../')
 var mi = require('midentity')
 var Keys = mi.Keys
 var Identity = mi.Identity
@@ -57,7 +57,7 @@ var DEFAULTS = {
   // keeper: new KeeperAPI('http://localhost:25667')
 }
 
-function newAlfred (options) {
+function newChainDB (options) {
   var opts = extend({}, DEFAULTS, options)
   if (!opts.chain) {
     opts.chain = new Fakechain({ networkName: 'testnet' })
@@ -71,14 +71,14 @@ function newAlfred (options) {
     opts.path = './test' + (dbCount++) + '.db'
   }
 
-  var butler = new Butler(opts)
+  var chaindb = new ChainDB(opts)
     .setChainloader(new DataLoader({
       prefix: PREFIX,
       networkName: opts.networkName,
       keeper: opts.keeper
     }))
 
-  return butler
+  return chaindb
 }
 
 // test('prime chain', function () {
@@ -88,7 +88,7 @@ function newAlfred (options) {
 test('"put" identity on chain, then "put" identity-signed object', function (t) {
   // t.timeoutAfter(10000)
   var keeper = fakeKeeper.empty()
-  var alfred = newAlfred({
+  var chaindb = newChainDB({
     fromBlock: 0,
     chain: tedWallet.blockchain,
     keeper: keeper,
@@ -96,7 +96,7 @@ test('"put" identity on chain, then "put" identity-signed object', function (t) 
     syncInterval: 1000
   })
 
-  alfred.identity = tedIdent
+  chaindb.identity = tedIdent
 
   fakePut({
       keeper: keeper,
@@ -113,8 +113,8 @@ test('"put" identity on chain, then "put" identity-signed object', function (t) 
     .done()
 
   var savedCount = 0
-  alfred.run()
-  alfred.on('saved', function (obj) {
+  chaindb.run()
+  chaindb.on('saved', function (obj) {
     savedCount++
     if (savedCount === 1) {
       t.equal(obj.key, 'e46143b3468534dce7b7b2ac8398fcc573f7376c')
@@ -122,7 +122,7 @@ test('"put" identity on chain, then "put" identity-signed object', function (t) 
     }
 
     if (savedCount === 3) {
-      return alfred.destroy()
+      return chaindb.destroy()
         .done(function () {
           t.end()
         })
@@ -152,15 +152,15 @@ test('"put" identity on chain, then "put" identity-signed object', function (t) 
 })
 
 test('detect/process identity on chain', function (t) {
-  var alfred = newAlfred({
+  var chaindb = newChainDB({
     keeper: fakeKeeper.forMap({
       'e46143b3468534dce7b7b2ac8398fcc573f7376c': ted
     }),
     chain: new Fakechain({ networkName: 'testnet' }).addBlock(tedBlock, FIRST_BLOCK)
   })
-  alfred.identity = tedIdent
-  alfred.run()
-  alfred.on('saved', lookup)
+  chaindb.identity = tedIdent
+  chaindb.run()
+  chaindb.on('saved', lookup)
 
   function lookup () {
     Q.all([
@@ -174,14 +174,14 @@ test('detect/process identity on chain', function (t) {
       // testnet
       '02464bb42a7f8c3b11b591ec4efe65ecfde2878e746429e96783c00ce3c3cc489c'
       ].map(function (key) {
-        return alfred.byPubKey(key)
+        return chaindb.byPubKey(key)
           .then(function (iJSON) {
             var identity = Identity.fromJSON(iJSON)
             t.equal(identity.name(), 'Ted Theodore Logan')
           })
       }))
       .then(function () {
-        return alfred.destroy()
+        return chaindb.destroy()
       })
       .done(function () {
         t.end()
@@ -192,7 +192,7 @@ test('detect/process identity on chain', function (t) {
 test('process chained object', function (t) {
   t.plan(1)
 
-  var alfred = newAlfred()
+  var chaindb = newChainDB()
   var b = new Builder()
   b.data({
     _type: 'thang',
@@ -205,10 +205,10 @@ test('process chained object', function (t) {
     wrap(buf, function (err, wrapped) {
       if (err) throw err
 
-      alfred._processChainedObj(wrapped)
+      chaindb._processChainedObj(wrapped)
         .then(function (processed) {
           t.notOk(processed)
-          return alfred.destroy()
+          return chaindb.destroy()
         })
         .done()
     })
