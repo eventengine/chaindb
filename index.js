@@ -13,6 +13,7 @@ var dezalgo = require('dezalgo')
 var extend = require('extend')
 var inherits = require('util').inherits
 var defaultHandlers = require('./defaultHandlers')
+var normalizeJSON = require('./normalizeJSON')
 var EventEmitter = require('events').EventEmitter
 // var PromiseStream = require('./promisestream')
 var BLOCK_KEY = 'lastblock'
@@ -348,7 +349,7 @@ ChainDB.prototype._getVia = function (key, db) {
   var self = this
   return db.get(key)
     .then(function (hash) {
-      return self._byDHTKey.get(hash)
+      return self.byDHTKey(hash)
     })
     .then(function (chainedObj) {
       return chainedObj.parsed.data.value
@@ -357,6 +358,7 @@ ChainDB.prototype._getVia = function (key, db) {
 
 ChainDB.prototype.byDHTKey = function (key) {
   return this._byDHTKey.get(key)
+    .then(normalizeJSON)
 }
 
 ChainDB.prototype.byFingerprint = function (fingerprint) {
