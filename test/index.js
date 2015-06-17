@@ -71,32 +71,27 @@ function newChainDB (options) {
     opts.path = './test' + (dbCount++) + '.db'
   }
 
-  var chaindb = new ChainDB(opts)
-    .setChainloader(new DataLoader({
+  if (!opts.chainloader) {
+    opts.chainloader = new DataLoader({
       prefix: PREFIX,
       networkName: opts.networkName,
       keeper: opts.keeper
-    }))
+    })
+  }
 
-  return chaindb
+  return new ChainDB(opts)
 }
-
-// test('prime chain', function () {
-
-// })
 
 test('"put" identity on chain, then "put" identity-signed object', function (t) {
   // t.timeoutAfter(10000)
   var keeper = fakeKeeper.empty()
   var chaindb = newChainDB({
     fromBlock: 0,
-    chain: tedWallet.blockchain,
+    blockchain: tedWallet.blockchain,
     keeper: keeper,
-    // identity: tedIdent,
+    identity: tedIdent,
     syncInterval: 1000
   })
-
-  chaindb.identity = tedIdent
 
   fakePut({
       keeper: keeper,
@@ -138,7 +133,7 @@ test('"put" identity on chain, then "put" identity-signed object', function (t) 
 
         fakePut({
             wallet: tedWallet,
-            chain: tedWallet.blockchain,
+            blockchain: tedWallet.blockchain,
             keeper: keeper,
             data: buf,
             recipients: billIdent.keys({ networkName: 'testnet' }).map(function (k) {
@@ -156,9 +151,10 @@ test('detect/process identity on chain', function (t) {
     keeper: fakeKeeper.forMap({
       'e46143b3468534dce7b7b2ac8398fcc573f7376c': ted
     }),
-    chain: new Fakechain({ networkName: 'testnet' }).addBlock(tedBlock, FIRST_BLOCK)
+    blockchain: new Fakechain({ networkName: 'testnet' }).addBlock(tedBlock, FIRST_BLOCK),
+    identity: tedIdent
   })
-  chaindb.identity = tedIdent
+
   chaindb.run()
   chaindb.on('saved', lookup)
 

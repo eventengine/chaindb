@@ -43,7 +43,7 @@ function ChainDB (options) {
     batchSize: options.batchSize || 5,
     throttle: 2000,
     networkName: networkName,
-    api: options.chain
+    api: options.blockchain
   }
 
   this.identity = options.identity
