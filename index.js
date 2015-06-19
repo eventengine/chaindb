@@ -19,7 +19,7 @@ var EventEmitter = require('events').EventEmitter
 var BLOCK_KEY = 'lastblock'
 var SYNC_INTERVAL = 20000
 var STARTING_BLOCK = {
-  testnet: 330399
+  testnet: 447188
 }
 
 var noop = function () {}
