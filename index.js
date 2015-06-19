@@ -32,13 +32,13 @@ function ChainDB (options) {
     // chainloader: can set after init
   }, options)
 
+  var networkName = options.networkName
   this._options = extend(true, {
     fromBlock: STARTING_BLOCK[networkName] || 0
   }, options)
 
   bindAll(this)
 
-  var networkName = options.networkName
   this._walkerOpts = {
     batchSize: options.batchSize || 5,
     throttle: 2000,
