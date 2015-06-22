@@ -5,13 +5,13 @@ var test = require('tape')
 var extend = require('extend')
 var memdown = require('memdown')
 var dickChainey = require('chained-obj')
+var bitcoin = require('bitcoinjs-lib')
 var Builder = dickChainey.Builder
 var ChainDB = require('../')
 var mi = require('midentity')
 var Keys = mi.Keys
 var Identity = mi.Identity
 var DataLoader = require('chainloader')
-var wrap = require('./helpers/chainedObjWrapper')
 var fakeKeeper = require('tradle-test-helpers').FakeKeeper
 var fakeWallet = require('tradle-test-helpers').fakeWallet
 var fakePut = require('./helpers/fakePut')
@@ -23,6 +23,7 @@ var tedPriv = require('./fixtures/ted-priv')
 var FIRST_BLOCK = 447188
 var tedBlockHexPath = path.join(__dirname, '/fixtures/blocks/' + FIRST_BLOCK)
 var tedBlock = fs.readFileSync(tedBlockHexPath)
+var chainstreams = require('cb-streams')
 var dbCount = 0
 var PREFIX = 'tradle'
 
@@ -83,7 +84,8 @@ function newChainDB (options) {
 }
 
 test('"put" identity on chain, then "put" identity-signed object', function (t) {
-  // t.timeoutAfter(10000)
+  t.timeoutAfter(10000)
+
   var keeper = fakeKeeper.empty()
   var chaindb = newChainDB({
     fromBlock: 0,
@@ -108,7 +110,17 @@ test('"put" identity on chain, then "put" identity-signed object', function (t) 
     .done()
 
   var savedCount = 0
-  chaindb.run()
+  // chaindb.run()
+  var liveStream = chainstreams.stream.txs({
+    live: true,
+    interval: 1000,
+    api: tedWallet.blockchain,
+    networkName: tedWallet.networkName,
+    addresses: [tedWallet.addressString, billWallet.addressString]
+  })
+
+  chaindb.readTxStream(liveStream)
+
   chaindb.on('saved', function (obj) {
     savedCount++
     if (savedCount === 1) {
@@ -117,6 +129,7 @@ test('"put" identity on chain, then "put" identity-signed object', function (t) 
     }
 
     if (savedCount === 3) {
+      liveStream.push(null)
       return chaindb.destroy()
         .done(function () {
           t.end()
@@ -147,15 +160,38 @@ test('"put" identity on chain, then "put" identity-signed object', function (t) 
 })
 
 test('detect/process identity on chain', function (t) {
+  t.timeoutAfter(10000)
+
   var chaindb = newChainDB({
     keeper: fakeKeeper.forMap({
       'e46143b3468534dce7b7b2ac8398fcc573f7376c': ted
     }),
-    blockchain: new Fakechain({ networkName: 'testnet' }).addBlock(tedBlock, FIRST_BLOCK),
     identity: tedIdent
   })
 
-  chaindb.run()
+  var blockchain = new Fakechain({ networkName: 'testnet' })
+  var block = bitcoin.Block.fromBuffer(tedBlock)
+  var numTxs = block.transactions.length
+  var perBatch = numTxs / 10 | 0
+  var num = 0
+  while (block.transactions.length) {
+    var txs = block.transactions.slice(0, Math.min(perBatch, block.transactions.length))
+    block.transactions = block.transactions.slice(perBatch)
+    blockchain.addTxs(txs, FIRST_BLOCK + (num++))
+  }
+
+  var datatxstream = chainstreams.stream.txs({
+    api: blockchain,
+    networkName: tedWallet.networkName
+  })
+
+  chaindb.readTxStream(datatxstream)
+  for (var i = 0; i < num; i++) {
+    datatxstream.write(FIRST_BLOCK + i)
+  }
+
+  datatxstream.end()
+
   chaindb.on('saved', lookup)
 
   function lookup () {
@@ -185,28 +221,28 @@ test('detect/process identity on chain', function (t) {
   }
 })
 
-test('process chained object', function (t) {
-  t.plan(1)
+// test('process chained object', function (t) {
+//   t.plan(1)
 
-  var chaindb = newChainDB()
-  var b = new Builder()
-  b.data({
-    _type: 'thang',
-    a: 1
-  })
+//   var chaindb = newChainDB()
+//   var b = new Builder()
+//   b.data({
+//     _type: 'thang',
+//     a: 1
+//   })
 
-  b.build(function (err, buf) {
-    if (err) throw err
+//   b.build(function (err, buf) {
+//     if (err) throw err
 
-    wrap(buf, function (err, wrapped) {
-      if (err) throw err
+//     wrap(buf, function (err, wrapped) {
+//       if (err) throw err
 
-      chaindb._processChainedObj(wrapped)
-        .then(function (processed) {
-          t.notOk(processed)
-          return chaindb.destroy()
-        })
-        .done()
-    })
-  })
-})
+//       chaindb._processChainedObj(wrapped)
+//         .then(function (processed) {
+//           t.notOk(processed)
+//           return chaindb.destroy()
+//         })
+//         .done()
+//     })
+//   })
+// })

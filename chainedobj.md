@@ -7,6 +7,7 @@
   "tx": {
     "id": idHex,
     "body": bitcoin.Transaction, // bitcoin transaction
+    "height": "block height",
     "addresses": {
       "from": ["addrHex", "addrHex"],
       "to": ["addrHex", "addrHex"]
