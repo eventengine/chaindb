@@ -2,7 +2,7 @@
   "key": "..dht key..",
   "from": Identity?, // may be null
   "to": Identity?,   // may be null
-  "file": fileBuffer,
+  "data": fileBuffer,
   "permission": Permission?, // permission associated with the stored obj
   "tx": {
     "id": idHex,

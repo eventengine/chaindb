@@ -288,7 +288,7 @@ ChainDB.prototype._setBlock = function (block) {
 //   var isIdentity
 //   var valid
 
-//   return Q.ninvoke(Parser, 'parse', chainedObj.file)
+//   return Q.ninvoke(Parser, 'parse', chainedObj.data)
 //     .then(function (parsed) {
 //       json = parsed.data.value
 //       isIdentity = json._type === Identity.TYPE
@@ -515,7 +515,7 @@ function bindAll (ctx) {
 function mkParser () {
   return through2.obj(function (chainedObj, enc, done) {
     var ps = this
-    Parser.parse(chainedObj.file, function (err, parsed) {
+    Parser.parse(chainedObj.data, function (err, parsed) {
       if (err) {
         debug('invalid chained-obj', chainedObj.key)
         return done()
