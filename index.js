@@ -87,7 +87,7 @@ ChainDB.prototype.readTxStream = function (stream) {
     }))
     .pipe(this.chainloader)
     .pipe(mkParser())
-    .pipe(sanityCheck())
+    .pipe(basicIdCheck())
     .pipe(this._verifier)
     .pipe(through2.obj(function (chainedObj, enc, done) {
       self._save(chainedObj)
@@ -395,6 +395,10 @@ ChainDB.prototype.byFingerprint = function (fingerprint) {
   return this._getVia(fingerprint, this._byFingerprint)
 }
 
+ChainDB.prototype.keyForFingerprint = function (fingerprint) {
+  return this._byFingerprint.get(fingerprint)
+}
+
 ChainDB.prototype.block = function (height) {
   var data = []
   return this._byDHTKey.createReadStream()
@@ -525,7 +529,7 @@ function mkParser () {
   })
 }
 
-function sanityCheck () {
+function basicIdCheck () {
   return through2.obj(function (chainedObj, enc, done) {
     var parsed = chainedObj.parsed
     var json = parsed.data.value
